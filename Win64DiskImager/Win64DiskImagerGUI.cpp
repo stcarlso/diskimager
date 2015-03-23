@@ -446,7 +446,7 @@ BOOL CWin64DiskImagerGUI::OpenFile(CActionParams *params, LPCTSTR file,
 // Opens the data file for I/O
 BOOL CWin64DiskImagerGUI::OpenStreams(CActionParams *params, LPCTSTR inFile,
 		const CString &disk, const DWORD attrib) {
-	CString message;
+	CString message, label;
 	// Check the file, READ from disk = WRITE to file
 	switch (params->m_action) {
 	case ACTION_READ:
@@ -462,7 +462,10 @@ BOOL CWin64DiskImagerGUI::OpenStreams(CActionParams *params, LPCTSTR inFile,
 		break;
 	case ACTION_WRITE:
 		// This could be dangerous.
-		message.Format(IDS_WRITEWARN, disk);
+		label = getDriveLabel(disk);
+		if (label.GetLength() < 1)
+			label.SetString(_T("Untitled"));
+		message.Format(IDS_WRITEWARN, disk, label);
 		if (Confirm(message) && OpenFile(params, inFile, GENERIC_READ) &&
 				OpenDisk(params, disk, GENERIC_WRITE) &&
 				!HasSpaceFor(params->m_dest, params->m_file, disk, IDS_ERRORSPACE))

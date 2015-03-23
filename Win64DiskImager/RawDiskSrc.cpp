@@ -52,7 +52,7 @@ HANDLE CRawDiskSrc::LockAndUnmount(const CString &disk, const DWORD access) {
 		// Lock volume
 		if (getLockOnVolume(hVolume)) {
 			// Unmount volume
-			if (unmountVolume(hVolume))
+			if (!isVolumeMounted(hVolume) || unmountVolume(hVolume))
 				return hVolume;
 			removeLockOnVolume(hVolume);
 		}
