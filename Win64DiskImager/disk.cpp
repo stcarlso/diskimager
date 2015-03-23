@@ -26,11 +26,7 @@
 // Prefix disks with this to get the volume ID
 #define DISK_PREFIX _T("\\\\.\\")
 
-HANDLE getHandleOnFile(const CString &location, DWORD access) {
-	return CreateFileW(location, access, 0, NULL, (access == GENERIC_READ) ?
-		OPEN_EXISTING : CREATE_ALWAYS, 0, NULL);
-}
-
+// Retrieves a handle to a device (for mounting/unmounting/locking)
 HANDLE getHandleOnDevice(int device, DWORD access) {
 	CString devicename;
 	// Load device name
@@ -39,34 +35,40 @@ HANDLE getHandleOnDevice(int device, DWORD access) {
 		OPEN_EXISTING, 0, NULL);
 }
 
-HANDLE getHandleOnVolume(int volume, DWORD access) {
+// Retrieves a handle to a volume (raw disk data)
+HANDLE getHandleOnVolume(const CString &drive, DWORD access) {
 	CString volumeName;
 	// Load volume name
-	volumeName.Format(_T("\\\\.\\%c:"), (TCHAR)(_T('A') + volume));
+	volumeName.Format(_T("\\\\.\\%c:"), drive.GetAt(0));
 	return CreateFile(volumeName, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
 		OPEN_EXISTING, 0, NULL);
 }
 
+// Locks the volume to prevent other processes or Explorer from meddling while we work
 BOOL getLockOnVolume(HANDLE handle) {
 	DWORD bytes;
 	return DeviceIoControl(handle, FSCTL_LOCK_VOLUME, NULL, 0, NULL, 0, &bytes, NULL);
 }
 
+// Unlocks a locked volume
 BOOL removeLockOnVolume(HANDLE handle) {
 	DWORD bytes;
 	return DeviceIoControl(handle, FSCTL_UNLOCK_VOLUME, NULL, 0, NULL, 0, &bytes, NULL);
 }
 
+// Unmounts a volume from the system
 BOOL unmountVolume(HANDLE handle) {
 	DWORD bytes;
 	return DeviceIoControl(handle, FSCTL_DISMOUNT_VOLUME, NULL, 0, NULL, 0, &bytes, NULL);
 }
 
+// Checks to see if the volume is mounted
 BOOL isVolumeMounted(HANDLE handle) {
 	DWORD bytes;
 	return DeviceIoControl(handle, FSCTL_IS_VOLUME_MOUNTED, NULL, 0, NULL, 0, &bytes, NULL);
 }
 
+// Retrives the geometry of a disk - the number of sectors and the sector size
 BOOL getDiskGeometry(HANDLE handle, ULONGLONG &sectorCount, ULONGLONG &sectorSize) {
 	DWORD bytes;
 	DISK_GEOMETRY_EX diskgeometry;
@@ -81,16 +83,9 @@ BOOL getDiskGeometry(HANDLE handle, ULONGLONG &sectorCount, ULONGLONG &sectorSiz
 	return FALSE;
 }
 
+// Rounds the file size up to the nearest sector
 ULONGLONG calcSizeInSectors(ULONGLONG bytes, ULONGLONG sectorsize) {
 	return (bytes / sectorsize) + ((bytes % sectorsize) ? 1ULL : 0ULL);
-}
-
-BOOL spaceAvailable(const CString &location, ULONGLONG spaceNeeded) {
-	ULARGE_INTEGER freespace;
-	if (!GetDiskFreeSpaceEx(location, NULL, NULL, &freespace))
-		// Let's not...
-		return FALSE;
-	return spaceNeeded <= (ULONGLONG)freespace.QuadPart;
 }
 
 // Given a drive letter (ending in a slash), return the label for that drive
@@ -135,6 +130,7 @@ static BOOL GetDisksProperty(HANDLE hDevice, PSTORAGE_DEVICE_DESCRIPTOR pDevDesc
 	return FALSE;
 }
 
+// Given a path, returns a trailing-slashed version in slash and a no-slash version in noSlash
 static void slashify(const CString &str, CString &slash, CString &noSlash) {
 	const int length = str.GetLength();
 	if (length > 0) {
@@ -149,6 +145,7 @@ static void slashify(const CString &str, CString &slash, CString &noSlash) {
 			noSlash.SetString(str);
 		}
 	} else {
+		// Nothing to do!
 		slash.SetString(_T(""));
 		noSlash.SetString(_T(""));
 	}
@@ -168,6 +165,7 @@ static inline BOOL _checkDriveType(const CString &nameNoSlash, UINT driveType, D
 	STORAGE_DEVICE_NUMBER deviceInfo;
 	DWORD bytes;
 	BOOL found = FALSE;
+	// This one needs no slash
 	HANDLE hDevice = CreateFile(nameNoSlash, FILE_READ_ATTRIBUTES, FILE_SHARE_READ |
 		FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hDevice != INVALID_HANDLE_VALUE) {

@@ -1,3 +1,24 @@
+/**********************************************************************
+ *  This program is free software; you can redistribute it and/or     *
+ *  modify it under the terms of the GNU General Public License       *
+ *  as published by the Free Software Foundation; either version 2    *
+ *  of the License, or (at your option) any later version.            *
+ *                                                                    *
+ *  This program is distributed in the hope that it will be useful,   *
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of    *
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the     *
+ *  GNU General Public License for more details.                      *
+ *                                                                    *
+ *  You should have received a copy of the GNU General Public License *
+ *  along with this program; if not, write to the Free Software       *
+ *  Foundation, Inc., 51 Franklin Street, Fifth Floor,                *
+ *  Boston, MA  02110-1301, USA.                                      *
+ *                                                                    *
+ *  ---                                                               *
+ *  Copyright (C) 2014, Stephen Carlson                               *
+ *                                  <https://www.github.com/stcarlso> *
+ **********************************************************************/
+
 #include "stdafx.h"
 #include "RawDiskSrc.h"
 #include "disk.h"
@@ -26,11 +47,8 @@ void CRawDiskSrc::Close() {
 // Locks the device and unmounts it
 HANDLE CRawDiskSrc::LockAndUnmount(const CString &disk, const DWORD access) {
 	HANDLE hVolume;
-	// Calculate volume from disk path
-	int volume = (int)(disk.GetAt(0) - _T('A'));
-	if (volume < 0 || volume > 25) volume = 0;
 	// Open volume
-	if (SUCCEEDED(hVolume = getHandleOnVolume(volume, access))) {
+	if (SUCCEEDED(hVolume = getHandleOnVolume(disk, access))) {
 		// Lock volume
 		if (getLockOnVolume(hVolume)) {
 			// Unmount volume

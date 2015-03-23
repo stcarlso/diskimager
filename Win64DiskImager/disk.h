@@ -22,15 +22,23 @@
 
 #pragma once
 
-HANDLE getHandleOnFile(const CString &location, DWORD access);
-HANDLE getHandleOnDevice(int device, DWORD access);
-HANDLE getHandleOnVolume(int volume, DWORD access);
-const CString getDriveLabel(const CString &drive);
-BOOL getLockOnVolume(HANDLE handle);
-BOOL removeLockOnVolume(HANDLE handle);
-BOOL unmountVolume(HANDLE handle);
-BOOL isVolumeMounted(HANDLE handle);
-BOOL getDiskGeometry(HANDLE handle, ULONGLONG &sectorCount, ULONGLONG &sectorSize);
+// Rounds the file size up to the nearest sector
 ULONGLONG calcSizeInSectors(ULONGLONG bytes, ULONGLONG sectorSize);
-BOOL spaceAvailable(const CString &location, ULONGLONG spaceNeeded);
+// Checks the drive type to see if it is a removable device; if so, provides the volume ID
 BOOL checkDriveType(const CString &name, DWORD &pid);
+// Retrieves a handle to a device (for mounting/unmounting/locking)
+HANDLE getHandleOnDevice(int device, DWORD access);
+// Retrieves a handle to a volume (raw disk data)
+HANDLE getHandleOnVolume(const CString &drive, DWORD access);
+// Retrives the geometry of a disk - the number of sectors and the sector size
+BOOL getDiskGeometry(HANDLE handle, ULONGLONG &sectorCount, ULONGLONG &sectorSize);
+// Given a drive letter (ending in a slash), return the label for that drive
+const CString getDriveLabel(const CString &drive);
+// Locks the volume to prevent other processes or Explorer from meddling while we work
+BOOL getLockOnVolume(HANDLE handle);
+// Checks to see if the volume is mounted
+BOOL isVolumeMounted(HANDLE handle);
+// Unlocks a locked volume
+BOOL removeLockOnVolume(HANDLE handle);
+// Unmounts a volume from the system
+BOOL unmountVolume(HANDLE handle);
