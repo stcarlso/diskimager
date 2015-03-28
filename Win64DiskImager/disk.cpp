@@ -32,7 +32,7 @@ HANDLE getHandleOnDevice(int device, DWORD access) {
 	// Load device name
 	devicename.Format(_T("\\\\.\\PhysicalDrive%d"), device);
 	return CreateFile(devicename, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-		OPEN_EXISTING, 0, NULL);
+		OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
 }
 
 // Retrieves a handle to a volume (raw disk data)

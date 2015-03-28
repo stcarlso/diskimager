@@ -20,30 +20,52 @@
  **********************************************************************/
 
 #pragma once
+
 #include "DataSrc.h"
+#include "DiskStream.h"
+#include "7zpp.h"
 
-// Represents a disk file data source
-class CFileSrc : public CDataSrc {
+// A data source supporting read/write to 7-zip archives. Input is limited to archives with only
+// one file, anything else will fail in Open()
+class CSevenZipSrc : public CDataSrc {
 protected:
-	// Handle to the file
-	const HANDLE m_file;
-
+	// Size of the file
+	ULONGLONG m_size;
+	// Archive currently open
+	CDiskStream *m_stream;
+	// Use this to know when to quit out
+	HANDLE m_quit;
+	// Thread (started suspended) to do the dirty work
+	CWinThread *m_thread;
+	
+	// Default constructor
+	CSevenZipSrc(CDiskStream *stream, const ULONGLONG size, CWinThread *thread) :
+			m_stream(stream), m_size(size), m_thread(thread) {
+		const HANDLE srcThread = m_thread->m_hThread;
+		m_stream->AddRef();
+		// Copy handle to avoid double close
+		if (!DuplicateHandle(GetCurrentProcess(), srcThread, GetCurrentProcess(), &m_quit, 0,
+				FALSE, DUPLICATE_SAME_ACCESS))
+			m_quit = srcThread;
+	}
+	virtual ~CSevenZipSrc() {
+		m_stream->Release();
+	}
 public:
-	// Create from opened file
-	CFileSrc(const HANDLE file) : m_file(file) {}
-	// Copy constructor
-	CFileSrc(const CFileSrc &other) : m_file(other.m_file) {}
-
-	// Close the device
+	// Close the file
 	virtual void Close();
-	// Opens a file name and retrieves a handle to its data
-	static HANDLE Open(LPCTSTR name, const DWORD access);
-	// Preallocate space for the file
-	virtual BOOL Preallocate(ULONGLONG size);
+	// Initialize the 7-zip file (start compress/decompress thread)
+	virtual BOOL Init();
 	// Read data from the device, into the array
 	virtual BOOL ReadData(DWORD count, BYTE *data);
-	// Retrieve the actual size in bytes
+	// Retrieve the size of the data
 	virtual ULONGLONG Size();
 	// Write data to the device, from the array
 	virtual BOOL WriteData(DWORD count, BYTE *data);
+
+	// Creates a handle to a new 7-zip file to be used for output
+	static CSevenZipSrc * CreateNew(const CString &file, SevenZip::SevenZipLibrary &lib,
+		const ULONGLONG size);
+	// Opens a handle to an existing 7-zip file to be used for input
+	static CSevenZipSrc * OpenExisting(const CString &file, SevenZip::SevenZipLibrary &lib);
 };

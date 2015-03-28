@@ -22,44 +22,10 @@
 #include "stdafx.h"
 #include "Win64DiskImager.h"
 #include "ActionParams.h"
+#include "ProgressHandler.h"
 #include "Worker.h"
 #include "disk.h"
 #include "md5.h"
-
-// Handles progress updates
-class ProgressHandler {
-private:
-	// Handle to application where progress notifications go
-	const HWND m_app;
-	// Last update time
-	ULONGLONG m_lastUpdate;
-	// Where we were on last update
-	ULONGLONG m_lastSector;
-	// Sector size
-	ULONGLONG m_sectorSize;
-	// Sector count
-	ULONGLONG m_sectorCount;
-
-public:
-	// Based off of action parameter (yeah, envy and overuse...)
-	ProgressHandler(CActionParams *params) : m_app(params->m_app), m_lastSector(0ULL) {
-		CRawDiskSrc *dest = params->m_dest;
-		m_lastUpdate = GetTickCount64();
-		if (dest != NULL) {
-			// Store sector count and size
-			m_sectorCount = dest->GetSectorCount();
-			m_sectorSize = dest->GetSectorSize();
-		}
-	}
-	// Copy constructor
-	ProgressHandler(const ProgressHandler &other) : m_app(other.m_app),
-		m_lastUpdate(other.m_lastUpdate), m_lastSector(other.m_lastSector),
-		m_sectorSize(other.m_sectorSize), m_sectorCount(other.m_sectorCount) {}
-	virtual ~ProgressHandler() {}
-
-	// Updates the application with the information so far
-	BOOL Update(const ULONGLONG sector);
-};
 
 // Posts the file error message to the application
 static inline void PostFileError(const HWND hApp) {
@@ -78,36 +44,9 @@ static inline void PostProgressComplete(const HWND hApp) {
 	PostMessage(hApp, WM_PROGRESS, 65536, 0);
 }
 
-// Posts a progress update to the application, with progress from 0..65535 and rate in 100 kB/s
-static inline void PostProgress(const HWND hApp, const DWORD progress, const DWORD rate) {
-	PostMessage(hApp, WM_PROGRESS, progress, rate);
-}
-
-// Checks to see if a progress update is needed
-#define KB_100 102400ULL
-BOOL ProgressHandler::Update(const ULONGLONG sector) {
-	// Do we need it?
-	const ULONGLONG now = GetTickCount64(), dt = now - m_lastUpdate;
-	if (dt >= UPDATE_RATE) {
-		const ULONGLONG denom = dt * KB_100, copied = (sector - m_lastSector) * m_sectorSize;
-		// Calculate progress / 65536, rate in 100 kB/s
-		PostProgress(m_app, (DWORD)(((sector << 16) + (m_sectorCount >> 1)) / m_sectorCount),
-			(DWORD)((copied * 1000ULL + (denom >> 1)) / denom));
-		m_lastUpdate = now;
-		m_lastSector = sector;
-		return TRUE;
-	}
-	return FALSE;
-}
-
 // Posts the completion message and signals any waiting threads
 static void Finish(const HWND hApp) {
 	PostMessage(hApp, WM_END, 0, 0);
-}
-
-// Preallocates disk space for the file, returning true if successful
-static BOOL Preallocate(const HANDLE hFile, const ULONGLONG size) {
-	
 }
 
 // Allocates a buffer
@@ -119,13 +58,13 @@ static BOOL SectorCopy(CActionParams *params, CDataSrc *dst, CDataSrc *src) {
 	BOOL status = TRUE, doMD5 = params->m_md5;
 	const HWND hApp = params->m_app;
 	volatile BOOL *cancel = params->m_cancel;
-	ProgressHandler prog(params);
+	CProgressHandler prog(params);
 	// Get target streams
 	CRawDiskSrc *disk = params->m_dest;
-	const ULONGLONG sectorSize = disk->GetSectorSize(),
-		sectorCount = calcSizeInSectors(src->Size(), sectorSize);
+	const ULONGLONG sectorSize = disk->GetSectorSize(), sectorCount = calcSizeInSectors(
+		src->Size(), sectorSize);
 	MD5 md5;
-	// Allocate chunks
+	// Allocate chunks, use smaller chunks when compressing to 
 	size_t count, bufferSize = (size_t)(CHUNK_SIZE * sectorSize);
 	BYTE *data = ALLOC_BUFFER(bufferSize);
 	if (data != NULL) {
@@ -137,27 +76,27 @@ static BOOL SectorCopy(CActionParams *params, CDataSrc *dst, CDataSrc *src) {
 			// Count # of sectors to copy this round
 			if (size > CHUNK_SIZE) size = CHUNK_SIZE;
 			count = (size_t)(size * sectorSize);
-			if (!src->ReadData(sector * sectorSize, (DWORD)count, data) ||
-					!dst->WriteData(sector * sectorSize, (DWORD)count, data)) {
+			if (!src->ReadData((DWORD)count, data) || !dst->WriteData((DWORD)count, data)) {
 				// Error in I/O
 				PostFileError(hApp);
 				status = FALSE;
-			} else {
+			} else if (cancel && *(cancel))
+				// Cancel operation
+				status = FALSE;
+			else {
 				// Update progress report
 				prog.Update(sector);
 				if (doMD5)
 					// MD5 calculations
 					md5.Update((unsigned char *)data, count);
 			}
-			if (cancel && *(cancel))
-				// Cancel operation
-				status = FALSE;
 		}
 		// All done
-		if (doMD5 && status)
-			PostMD5(hApp, md5);
-		if (status)
+		if (status) {
+			if (doMD5)
+				PostMD5(hApp, md5);
 			PostProgressComplete(hApp);
+		}
 		// Do not leak it!
 		CoTaskMemFree(data);
 	} else
@@ -171,11 +110,12 @@ static BOOL SectorCompare(CActionParams *params) {
 	BOOL status = TRUE, doMD5 = params->m_md5;
 	const HWND hApp = params->m_app;
 	volatile BOOL *cancel = params->m_cancel;
-	ProgressHandler prog(params);
+	CProgressHandler prog(params);
 	// Get target streams
 	CDataSrc *left = params->m_file;
 	CRawDiskSrc *right = params->m_dest;
-	const ULONGLONG sectorSize = right->GetSectorSize(), sectorCount = right->GetSectorCount();
+	const ULONGLONG sectorSize = right->GetSectorSize(), sectorCount = calcSizeInSectors(
+		left->Size(), sectorSize);
 	MD5 md5;
 	// Allocate chunks
 	size_t count, bufferSize = (size_t)(CHUNK_SIZE * sectorSize);
@@ -189,8 +129,7 @@ static BOOL SectorCompare(CActionParams *params) {
 			// Count # of sectors to copy this round
 			if (size > CHUNK_SIZE) size = CHUNK_SIZE;
 			count = (size_t)(size * sectorSize);
-			if (!left->ReadData(sector * sectorSize, (DWORD)count, dLeft) ||
-					!right->ReadData(sector * sectorSize, (DWORD)count, dRight)) {
+			if (!left->ReadData((DWORD)count, dLeft) || !right->ReadData((DWORD)count, dRight)) {
 				// Error in I/O
 				PostFileError(hApp);
 				status = FALSE;
@@ -198,22 +137,23 @@ static BOOL SectorCompare(CActionParams *params) {
 				// Verify fail
 				PostMessage(hApp, WM_VER_MISMATCH, 0, 0);
 				status = FALSE;
-			} else {
+			} else if (cancel && *(cancel))
+				// Cancel operation
+				status = FALSE;
+			else {
 				// Update progress report
 				prog.Update(sector);
 				if (doMD5)
 					// MD5 calculations, we use LHS data
 					md5.Update((unsigned char *)dLeft, count);
 			}
-			if (cancel && *(cancel))
-				// Cancel operation
-				status = FALSE;
 		}
 		// All done
-		if (doMD5 && status)
-			PostMD5(hApp, md5);
-		if (status)
+		if (status) {
+			if (doMD5)
+				PostMD5(hApp, md5);
 			PostProgressComplete(hApp);
+		}
 	} else
 		status = FALSE;
 	// Do not leak it!
@@ -233,13 +173,14 @@ UINT ReadWorker(LPVOID param) {
 	CRawDiskSrc *dest = params->m_dest;
 	// If disk and file are open
 	if (file != NULL && dest != NULL) {
-		if (file->Preallocate(dest->Size()))
+		if (file->Init() && file->Preallocate(dest->Size()))
 			SectorCopy(params, file, dest);
 		else
 			PostFileError(hApp);
 	}
-	Finish(hApp);
 	// Do not leak it
+	params->Release();
+	Finish(hApp);
 	delete params;
 	return 0U;
 }
@@ -248,13 +189,19 @@ UINT ReadWorker(LPVOID param) {
 UINT WriteWorker(LPVOID param) {
 	CActionParams *params = (CActionParams *)param;
 	// Get information
+	const HWND hApp = params->m_app;
 	CDataSrc *file = params->m_file;
 	CRawDiskSrc *dest = params->m_dest;
 	// If disk and file are open
-	if (file != NULL && dest != NULL)
-		SectorCopy(params, dest, file);
-	Finish(params->m_app);
+	if (file != NULL && dest != NULL) {
+		if (file->Init())
+			SectorCopy(params, dest, file);
+		else
+			PostFileError(hApp);
+	}
 	// Do not leak it
+	params->Release();
+	Finish(hApp);
 	delete params;
 	return 0U;
 }
@@ -266,14 +213,19 @@ UINT VerifyWorker(LPVOID param) {
 	const HWND hApp = params->m_app;
 	CDataSrc *file = params->m_file;
 	// If disk and file are open
-	if (file != NULL && params->m_dest != NULL && SectorCompare(params)) {
-		ULARGE_INTEGER pass;
-		pass.QuadPart = file->Size();
-		// Verify passed!
-		PostMessage(hApp, WM_VER_OK, (WPARAM)pass.HighPart, (LPARAM)pass.LowPart);
+	if (file != NULL && params->m_dest != NULL) {
+		if (!file->Init())
+			PostFileError(hApp);
+		else if (SectorCompare(params)) {
+			ULARGE_INTEGER pass;
+			pass.QuadPart = file->Size();
+			// Verify passed!
+			PostMessage(hApp, WM_VER_OK, (WPARAM)pass.HighPart, (LPARAM)pass.LowPart);
+		}
 	}
-	Finish(hApp);
 	// Do not leak it
+	params->Release();
+	Finish(hApp);
 	delete params;
 	return 0U;
 }

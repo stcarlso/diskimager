@@ -11,4 +11,8 @@ MFC to add features such as taskbar progress, and 7-Zip compression/decompressio
 
 ## Compiling
 
-Open Win64DiskImager.sln in Visual Studio 2013. Compiling should be fairly straightforward.
+Open Win64DiskImager.sln in Visual Studio 2013. You will need a copy of the LZMA SDK (public
+domain software available at http://www.7-zip.org/sdk.html ) placed in the 7-Zip folder to
+compile the included modified SevenZip++ library.
+
+Compiling should be fairly straightforward after that.

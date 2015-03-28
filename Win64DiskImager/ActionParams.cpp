@@ -26,12 +26,16 @@
 // Create action parameters based on action
 CActionParams::CActionParams(const UINT act, CWin64DiskImagerGUI *gui) : m_action(act),
 	m_app(gui->GetSafeHwnd()), m_md5(gui->ShouldDoMD5()), m_dest(NULL), m_file(NULL),
-	m_cancel(gui->RefToCancel()) {}
+	m_cancel(gui->RefToCancel()), m_compress(gui->ShouldCompress()), m_7z(gui->RefTo7Zip()) {}
 
-CActionParams::~CActionParams() {
-	Release();
-}
+// Copy constructor (! This can be dangerous leading to double frees of m_file, m_dest)
+CActionParams::CActionParams(const CActionParams &other) : m_action(other.m_action),
+	m_app(other.m_app), m_md5(other.m_md5), m_dest(other.m_dest), m_file(other.m_file),
+	m_cancel(other.m_cancel), m_compress(other.m_compress), m_7z(other.m_7z) {}
 
+CActionParams::~CActionParams() { }
+
+// Release references to m_file and m_dest
 void CActionParams::Release() {
 	if (m_file != NULL) {
 		m_file->Close();

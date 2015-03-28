@@ -51,6 +51,15 @@
     <ClInclude Include="ActionParams.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SevenZipSrc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DiskStream.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ProgressHandler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Win64DiskImager.cpp">
@@ -77,6 +86,15 @@
     <ClCompile Include="ActionParams.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SevenZipSrc.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="DiskStream.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ProgressHandler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Win64DiskImager.rc">
@@ -87,6 +105,7 @@
     <None Include="res\Win64DiskImager.rc2">
       <Filter>Resource Files</Filter>
     </None>
+    <None Include="7z.dll" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\Win64DiskImager.ico">

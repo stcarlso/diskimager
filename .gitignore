@@ -181,3 +181,9 @@ UpgradeLog*.htm
 
 # Microsoft Fakes
 FakesAssemblies/
+
+# Ignore 7-zip directory
+7Zip/*
+
+# Ignore the 7zPP library
+7zpp.lib

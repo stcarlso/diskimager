@@ -30,14 +30,18 @@ public:
 
 	// Close the device
 	virtual void Close() { }
+	// Initialize the device (meant for items such as 7-zip sources)
+	virtual BOOL Init() {
+		return TRUE;
+	}
 	// Preallocate space for this item (optional)
 	virtual BOOL Preallocate(ULONGLONG size) {
-		return FALSE;
+		return TRUE;
 	}
 	// Read data from the device, into the array
-	virtual BOOL ReadData(ULONGLONG start, DWORD count, BYTE *data) = 0;
+	virtual BOOL ReadData(DWORD count, BYTE *data) = 0;
 	// Retrieve the size of the data
 	virtual ULONGLONG Size() = 0;
 	// Write data to the device, from the array
-	virtual BOOL WriteData(ULONGLONG start, DWORD count, BYTE *data) = 0;
+	virtual BOOL WriteData(DWORD count, BYTE *data) = 0;
 };

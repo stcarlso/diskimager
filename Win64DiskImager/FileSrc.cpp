@@ -37,14 +37,11 @@ BOOL CFileSrc::Preallocate(ULONGLONG size) {
 }
 
 // Read data from the device, into the array
-BOOL CFileSrc::ReadData(ULONGLONG start, DWORD count, BYTE *data) {
+BOOL CFileSrc::ReadData(DWORD count, BYTE *data) {
 	// Will run OOM long before overflowing 32-bit integer for # of bytes to read
 	DWORD bytes;
-	LARGE_INTEGER li;
 	// Move to the right offset
-	li.QuadPart = start;
-	SetFilePointer(m_file, li.LowPart, &li.HighPart, FILE_BEGIN);
-	if (ReadFile(m_file, data, count, &bytes, NULL)) {
+	if (ReadFile(m_file, data, count, &bytes, NULL) && bytes > 0) {
 		if (bytes < count)
 			// Fill it with zeroes, this is important, use SecureZeroMemory to not optimize me
 			SecureZeroMemory(data + bytes, count - bytes);
@@ -63,12 +60,9 @@ ULONGLONG CFileSrc::Size() {
 }
 
 // Write data to the device, from the array
-BOOL CFileSrc::WriteData(ULONGLONG start, DWORD count, BYTE *data) {
+BOOL CFileSrc::WriteData(DWORD count, BYTE *data) {
 	DWORD bytes;
-	LARGE_INTEGER li;
-	li.QuadPart = start;
-	SetFilePointer(m_file, li.LowPart, &li.HighPart, FILE_BEGIN);
-	return WriteFile(m_file, data, count, &bytes, NULL);
+	return WriteFile(m_file, data, count, &bytes, NULL) && bytes > 0;
 }
 
 // Opens the 

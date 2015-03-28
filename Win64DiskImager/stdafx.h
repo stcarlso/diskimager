@@ -39,4 +39,9 @@
 #include <afxcontrolbars.h>
 
 #include <PathCch.h>
+#include <strsafe.h>
 #include <winioctl.h>
+
+// For 7z++
+#include <vector>
+#include <deque>

@@ -23,15 +23,22 @@
 
 #include "Win64DiskImager.h"
 #include "ActionParams.h"
+#include "../SevenZipPP/7zpp.h"
 
 class CWin64DiskImagerGUI : public CDialog {
 public:
 	CWin64DiskImagerGUI(CWnd* pParent = NULL);
 	virtual ~CWin64DiskImagerGUI();
 
-	// Used by other classes
+	// Used by ActionParams to cut parameters down to reasonable count
+	inline BOOL ShouldCompress() const {
+		return m_cDoCompress.GetCheck() == BST_CHECKED;
+	}
 	inline BOOL ShouldDoMD5() const {
 		return m_cDoMD5.GetCheck() == BST_CHECKED;
+	}
+	inline SevenZip::SevenZipLibrary * RefTo7Zip() {
+		return &m_7zip;
 	}
 	inline volatile BOOL * RefToCancel() {
 		return &m_waiting;
@@ -39,6 +46,9 @@ public:
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
+
+	// 7-zip library (yes, it could be global, but...)
+	SevenZip::SevenZipLibrary m_7zip;
 
 	// Control mappings for DoDataExchange to avoid GetDlgItem
 	CComboBox m_cDiskSelect;
@@ -82,17 +92,35 @@ protected:
 	}
 
 	// Helper methods
+
+	// Changes the progress bar in the window and title bar
 	void AdjustProgress(DWORD progress);
+	// Starts a task in the background, passing it a class with the important GUI parameters
 	BOOL BeginBackground(AFX_THREADPROC process, UINT action);
+	// Cancel the operation if running (dangerous!)
 	BOOL Cancel();
+	// Format the message from GetLastError into a string
 	void DisplayLastError(UINT messageTemplate, DWORD error, const CString &subOne);
+	// Gets the selected disk letter, or an empty string if none is selected
 	const CString GetSelectedDisk() const;
+	// Checks for sufficient disk space on the target device/disk
 	BOOL HasSpaceFor(CDataSrc *dst, CDataSrc *src, LPCTSTR dest, const UINT messageID);
-	BOOL OpenDisk(CActionParams *params, const CString &disk, const DWORD access);
-	BOOL OpenFile(CActionParams *params, LPCTSTR file, const DWORD access);
+	// Opens and returns a raw disk stream
+	CRawDiskSrc * OpenDisk(const CString &disk, const DWORD access);
+	// Opens a file on disk (sz parameter is only for 7-zip openings, can be 0 otherwise)
+	CDataSrc * OpenFile(LPCTSTR file, const DWORD access, const ULONGLONG sz = 0ULL);
+	// Opens the data file and disk for I/O with error messages on failure
 	BOOL OpenStreams(CActionParams *params, LPCTSTR inFile, const CString &disk,
 		const DWORD attrib);
+	// Opens streams required for reading with error messages on failure
+	BOOL OpenStreamsRead(CActionParams *params, LPCTSTR inFile, const CString &disk);
+	// Opens streams required for verify with error messages on failure
+	BOOL OpenStreamsVerify(CActionParams *params, LPCTSTR inFile, const CString &disk);
+	// Opens streams required for writing with error messages on failure
+	BOOL OpenStreamsWrite(CActionParams *params, LPCTSTR inFile, const CString &disk);
+	// Resets the 3 buttons to their default text
 	void ResetButtonText();
+	// Enables or disables al
 	void ToggleControls(BOOL enable);
 
 	// Handlers for messages from the system

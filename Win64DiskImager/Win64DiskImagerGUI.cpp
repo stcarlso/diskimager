@@ -28,6 +28,7 @@
 #include "Win64DiskImager.h"
 #include "Win64DiskImagerGUI.h"
 #include "Worker.h"
+#include "SevenZipSrc.h"
 #include "FileSrc.h"
 #include "RawDiskSrc.h"
 #include "disk.h"
@@ -92,7 +93,7 @@ void CWin64DiskImagerGUI::AdjustProgress(DWORD progress) {
 	}
 }
 
-// Starts a task in the background, passing it a struct of the important GUI parameters
+// Starts a task in the background, passing it a class with the important GUI parameters
 BOOL CWin64DiskImagerGUI::BeginBackground(AFX_THREADPROC process, UINT action) {
 	CActionParams *params;
 	CString inFile;
@@ -120,10 +121,9 @@ BOOL CWin64DiskImagerGUI::BeginBackground(AFX_THREADPROC process, UINT action) {
 			m_cMD5Sum.Clear();
 			// Reset progress to zero and clear old events
 			PostMessage(WM_PROGRESS, 0, 0);
-			AfxBeginThread(process, params);
-			// We got it!
-			start = TRUE;
-		} else
+			start = AfxBeginThread(process, params) != NULL;
+		}
+		if (!start)
 			// Do not leak it!
 			delete params;
 		LocalFree(canonFile);
@@ -138,6 +138,7 @@ BOOL CWin64DiskImagerGUI::Cancel() {
 		if (!m_waiting && Confirm(GetResourceString(IDS_CANCELWARN))) {
 			// Stop processing, controls are re-enabled (and can be closed for reals)
 			m_waiting = TRUE;
+			ToggleControls(FALSE);
 			SetStatus(GetResourceString(IDS_CANCELLED));
 		}
 		// Stop the window close
@@ -146,7 +147,7 @@ BOOL CWin64DiskImagerGUI::Cancel() {
 	return canClose;
 }
 
-// Format the message into a string
+// Format the message from GetLastError into a string
 void CWin64DiskImagerGUI::DisplayLastError(UINT messageTemplate, DWORD error,
 		const CString &subOne) {
 	LPTSTR errorMessage = NULL;
@@ -171,10 +172,39 @@ const CString CWin64DiskImagerGUI::GetSelectedDisk() const {
 	return disk;
 }
 
+// Checks for sufficient disk space on the target device/disk
+BOOL CWin64DiskImagerGUI::HasSpaceFor(CDataSrc *dst, CDataSrc *src, LPCTSTR dest,
+		const UINT messageID) {
+	ULONGLONG avail;
+	if (dst != NULL)
+		// Destination size is used
+		avail = dst->Size();
+	else {
+		// This will surely be enough
+		const DWORD len = lstrlen(dest) + 1;
+		LPTSTR volume = (LPTSTR)CoTaskMemAlloc(sizeof(TCHAR) * (size_t)len);
+		ULARGE_INTEGER ds;
+		// Extract disk where mounted, then GetDiskFreeSpaceEx it
+		if (GetVolumePathName(dest, volume, len) && GetDiskFreeSpaceEx(volume, &ds, NULL, NULL))
+			avail = ds.QuadPart;
+		CoTaskMemFree(volume);
+	}
+	// Is there room?
+	if (avail < src->Size()) {
+		CString message;
+		message.Format(messageID, dest);
+		Error(message);
+		return FALSE;
+	}
+	return TRUE;
+}
+
 // Bubble up only if the user is OK with cancelling what is running
 void CWin64DiskImagerGUI::OnClose() {
-	if (Cancel())
+	if (Cancel()) {
+		m_7zip.Free();
 		CDialog::OnClose();
+	}
 }
 
 // Fired when files are dragged and dropped onto the text box
@@ -224,33 +254,6 @@ LRESULT CWin64DiskImagerGUI::OnErrorFile(WPARAM wParam, LPARAM lParam) {
 	return (LRESULT)0;
 }
 
-// Checks for sufficient space
-BOOL CWin64DiskImagerGUI::HasSpaceFor(CDataSrc *dst, CDataSrc *src, LPCTSTR dest,
-		const UINT messageID) {
-	ULONGLONG avail;
-	if (dst != NULL)
-		// Destination size is used
-		avail = dst->Size();
-	else {
-		// This will surely be enough
-		const DWORD len = lstrlen(dest) + 1;
-		LPTSTR volume = (LPTSTR)CoTaskMemAlloc(sizeof(TCHAR) * (size_t)len);
-		ULARGE_INTEGER ds;
-		// Extract disk where mounted, then GetDiskFreeSpaceEx it
-		if (GetVolumePathName(dest, volume, len) && GetDiskFreeSpaceEx(volume, &ds, NULL, NULL))
-			avail = ds.QuadPart;
-		CoTaskMemFree(volume);
-	}
-	// Is there room?
-	if (avail < src->Size()) {
-		CString message;
-		message.Format(messageID, dest);
-		Error(message);
-		return FALSE;
-	}
-	return TRUE;
-}
-
 // Initialize the application
 BOOL CWin64DiskImagerGUI::OnInitDialog() {
 	// Initialize dialog
@@ -269,6 +272,14 @@ BOOL CWin64DiskImagerGUI::OnInitDialog() {
 	ResetButtonText();
 	// Initialize file browser
 	UpdateCompress();
+	// 7-Zip?
+	try {
+		m_7zip.Load();
+	} catch (SevenZip::SevenZipException &e) {
+		(void)e;
+		// Lock it out, we cannot do this
+		m_cDoCompress.EnableWindow(FALSE);
+	}
 	PostMessage(WM_UPDATEDISKS);
 	return TRUE;
 }
@@ -407,14 +418,14 @@ LRESULT CWin64DiskImagerGUI::OnVerifyMismatch(WPARAM wParam, LPARAM lParam) {
 	return (LRESULT)0;
 }
 
-// Opens a disk stream
-BOOL CWin64DiskImagerGUI::OpenDisk(CActionParams *params, const CString &disk,
-		const DWORD access) {
+// Opens and returns a raw disk stream
+CRawDiskSrc * CWin64DiskImagerGUI::OpenDisk(const CString &disk, const DWORD access) {
 	HANDLE hDisk, hRaw;
+	CRawDiskSrc *diskSrc = NULL;
 	// First, lock and unmount the volume
 	if (SUCCEEDED(hDisk = CRawDiskSrc::LockAndUnmount(disk, access))) {
 		if (SUCCEEDED(hRaw = CRawDiskSrc::Open(disk, access)))
-			params->m_dest = new CRawDiskSrc(hRaw, hDisk);
+			diskSrc = new CRawDiskSrc(hRaw, hDisk);
 		else {
 			// Disk error when opening
 			CloseHandle(hDisk);
@@ -423,27 +434,33 @@ BOOL CWin64DiskImagerGUI::OpenDisk(CActionParams *params, const CString &disk,
 	} else
 		// Disk error when locking/unmounting
 		DisplayLastError(IDS_ERRORDISK, GetLastError(), disk);
-	return params->m_dest != NULL;
+	return diskSrc;
 }
 
-// Opens a file
-BOOL CWin64DiskImagerGUI::OpenFile(CActionParams *params, LPCTSTR file,
-		const DWORD access) {
+// Opens a file on disk
+CDataSrc * CWin64DiskImagerGUI::OpenFile(LPCTSTR file, const DWORD access, const ULONGLONG sz) {
 	CString message;
 	HANDLE hFile;
-	if (SUCCEEDED(hFile = CFileSrc::Open(file, access)))
+	CDataSrc *fileSrc = NULL;
+	if (ShouldCompress()) {
+		// Open 7-zip file
+		if (access & GENERIC_WRITE)
+			fileSrc = CSevenZipSrc::CreateNew(file, m_7zip, sz);
+		else
+			fileSrc = CSevenZipSrc::OpenExisting(file, m_7zip);
+	} else if (SUCCEEDED(hFile = CFileSrc::Open(file, access)))
 		// Opened file
-		params->m_file = new CFileSrc(hFile);
-	else {
+		fileSrc = new CFileSrc(hFile);
+	if (fileSrc == NULL) {
 		// Display error message
-		const UINT code = (access & GENERIC_WRITE) != 0 ? IDS_ERROROUTPUT : IDS_FILENOTFOUND;
+		const UINT code = (access & GENERIC_WRITE) ? IDS_ERROROUTPUT : IDS_FILENOTFOUND;
 		message.Format(code, file);
 		Error(message);
 	}
-	return params->m_file != NULL;
+	return fileSrc;
 }
 
-// Opens the data file for I/O
+// Opens the data file and disk for I/O with error messages on failure
 BOOL CWin64DiskImagerGUI::OpenStreams(CActionParams *params, LPCTSTR inFile,
 		const CString &disk, const DWORD attrib) {
 	CString message, label;
@@ -452,30 +469,22 @@ BOOL CWin64DiskImagerGUI::OpenStreams(CActionParams *params, LPCTSTR inFile,
 	case ACTION_READ:
 		// Prompt for overwrite if the file exists
 		message.Format(IDS_OVERWRITE, inFile);
-		if (attrib == INVALID_FILE_ATTRIBUTES || Confirm(message)) {
-			// Attempt to open the output file for writing
-			if (OpenFile(params, inFile, GENERIC_WRITE) &&
-					OpenDisk(params, disk, GENERIC_READ) &&
-					!HasSpaceFor(NULL, params->m_dest, inFile, IDS_ERRORSPACE))
-				params->Release();
-		}
+		if (attrib == INVALID_FILE_ATTRIBUTES || Confirm(message))
+			OpenStreamsRead(params, inFile, disk);
 		break;
 	case ACTION_WRITE:
-		// This could be dangerous.
+		// This could be dangerous
 		label = getDriveLabel(disk);
 		if (label.GetLength() < 1)
 			label.SetString(_T("Untitled"));
 		message.Format(IDS_WRITEWARN, disk, label);
-		if (Confirm(message) && OpenFile(params, inFile, GENERIC_READ) &&
-				OpenDisk(params, disk, GENERIC_WRITE) &&
-				!HasSpaceFor(params->m_dest, params->m_file, disk, IDS_ERRORSPACE))
-			params->Release();
+		// Open output file first
+		if (Confirm(message))
+			OpenStreamsWrite(params, inFile, disk);
 		break;
 	case ACTION_VERIFY:
 		// Should be safe, neither disk nor file is written
-		if (OpenFile(params, inFile, GENERIC_READ) && OpenDisk(params, disk, GENERIC_READ) &&
-				!HasSpaceFor(params->m_dest, params->m_file, disk, IDS_VERIFYSIZE))
-			params->Release();
+		OpenStreamsVerify(params, inFile, disk);
 		break;
 	default:
 		// Bug!
@@ -484,6 +493,76 @@ BOOL CWin64DiskImagerGUI::OpenStreams(CActionParams *params, LPCTSTR inFile,
 	}
 	// If we got everything open
 	return params->m_file != NULL && params->m_dest != NULL;
+}
+
+// Opens streams required for reading with error messages on failure
+BOOL CWin64DiskImagerGUI::OpenStreamsRead(CActionParams *params, LPCTSTR inFile,
+		const CString &disk) {
+	CString message;
+	CDataSrc *fileSrc;
+	CRawDiskSrc *diskSrc = OpenDisk(disk, GENERIC_READ);
+	if (diskSrc != NULL) {
+		// Check for sufficient disk space
+		if (HasSpaceFor(NULL, diskSrc, inFile, IDS_ERRORSPACE) && (fileSrc =
+				OpenFile(inFile, GENERIC_WRITE, diskSrc->Size())) != NULL) {
+			// Success!
+			params->m_file = fileSrc;
+			params->m_dest = diskSrc;
+			return TRUE;
+		}
+		// Failed to open disk, or no space
+		diskSrc->Close();
+	}
+	return FALSE;
+}
+
+// Opens streams required for verify with error messages on failure
+BOOL CWin64DiskImagerGUI::OpenStreamsVerify(CActionParams *params, LPCTSTR inFile,
+		const CString &disk) {
+	CRawDiskSrc *diskSrc;
+	CDataSrc *fileSrc;
+	// Open file for verify
+	if ((fileSrc = OpenFile(inFile, GENERIC_READ)) != NULL) {
+		// Open raw disk second
+		if ((diskSrc = OpenDisk(disk, GENERIC_READ)) != NULL) {
+			if (HasSpaceFor(diskSrc, fileSrc, disk, IDS_VERIFYSIZE)) {
+				// Success!
+				params->m_file = fileSrc;
+				params->m_dest = diskSrc;
+				return TRUE;
+			}
+			// Not enough space
+			diskSrc->Close();
+		}
+		// Failed to open disk, or no space
+		fileSrc->Close();
+	}
+	return FALSE;
+}
+
+// Opens streams required for writing with error messages on failure
+BOOL CWin64DiskImagerGUI::OpenStreamsWrite(CActionParams *params, LPCTSTR inFile,
+		const CString &disk) {
+	CString message;
+	CRawDiskSrc *diskSrc;
+	CDataSrc *fileSrc;
+	// Open file for read
+	if ((fileSrc = OpenFile(inFile, GENERIC_READ)) != NULL) {
+		// Open raw disk second
+		if ((diskSrc = OpenDisk(disk, GENERIC_WRITE)) != NULL) {
+			if (HasSpaceFor(diskSrc, fileSrc, disk, IDS_ERRORSPACE)) {
+				// Success!
+				params->m_file = fileSrc;
+				params->m_dest = diskSrc;
+				return TRUE;
+			}
+			// Not enough space
+			diskSrc->Close();
+		}
+		// Disk read failed
+		fileSrc->Close();
+	}
+	return FALSE;
 }
 
 // Resets the 3 buttons to their default text

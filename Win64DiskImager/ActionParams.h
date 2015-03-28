@@ -23,6 +23,7 @@
 
 #include "FileSrc.h"
 #include "RawDiskSrc.h"
+#include "7zpp.h"
 
 class CWin64DiskImagerGUI;
 
@@ -34,21 +35,26 @@ class CWin64DiskImagerGUI;
 // Action information!
 class CActionParams {
 public:
+	// 7-zip library reference
+	SevenZip::SevenZipLibrary * const m_7z;
 	// Action to perform: ACTION_READ, ACTION_WRITE, or ACTION_VERIFY
 	const UINT m_action;
 	// Handle to the application for message posting
 	const HWND m_app;
 	// This will be TRUE if cancel requested
 	volatile BOOL *m_cancel;
-	// Do MD5?
-	const BOOL m_md5;
-	// File data
-	CDataSrc *m_file;
+	// Do compression?
+	const BOOL m_compress;
 	// Destination for data
 	CRawDiskSrc *m_dest;
+	// File data
+	CDataSrc *m_file;
+	// Do MD5?
+	const BOOL m_md5;
 
 	// Create an action parameters structure and initialize the volume to target
 	CActionParams::CActionParams(const UINT act, CWin64DiskImagerGUI *gui);
+	CActionParams::CActionParams(const CActionParams &other);
 	// We own these now, so we must trash them on quit
 	virtual ~CActionParams();
 
